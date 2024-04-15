@@ -1,0 +1,49 @@
+pipeline {
+    agent any
+    
+    stages{
+        stage("Clone Code"){
+            steps {
+                echo "Cloning the code"
+                git url: "https://github.com/Lalit-Jain-1612/django-notes-app.git", branch: "main"
+            }
+        }
+        stage("Build"){
+            steps{
+                echo "Building the image"
+                sh "docker container prune -f"
+                script {
+                    if (sh(script: 'docker ps --format "{{.Names}}" | grep -q "notes-app-container"', returnStatus: true) == 0) {
+                        sh "docker rm -f notes-app-container"
+                        echo "Old container removed"
+                    }
+                    // Remove old Docker image if exists
+                    def imageId = sh(script: 'docker images -q lalitjain/django-notes-app:v1', returnStdout: true).trim()
+                    if (imageId) {
+                        sh "docker rmi -f ${imageId}"
+                        echo "Old image removed"
+                        sh "docker image prune -a -f"
+                        echo "All unused images and dangling (no tags) images have been removed"
+                    }
+                }
+                sh "docker build . -t django-notes-app:v1"
+            }
+        }
+        stage("Push to Docker Hub"){
+            steps{
+                echo "pushing the image to dockerhub"
+                withCredentials([usernamePassword(credentialsId:"dockerhubcred",passwordVariable:"dockerhubPass",usernameVariable:"dockerHubUser")]){
+                    sh "docker login -u ${env.dockerHubUser} -p ${env.dockerhubPass}"
+                    sh "docker tag django-notes-app:v1 ${env.dockerHubUser}/django-notes-app:v1"
+                    sh "docker push ${env.dockerHubUser}/django-notes-app:v1"
+                }
+            }
+        }
+        stage("Deploy"){
+            steps{
+                echo "Deploying the container"
+                sh "docker run -d -p 8000:8000 --name notes-app-container lalitjain/django-notes-app:v1"
+            }
+        }
+    }
+}
